@@ -1,0 +1,78 @@
+name: build wheel
+
+on:
+    push:
+
+permissions:
+    actions: write
+    checks: write
+    contents: write
+
+jobs:
+    maketag:
+       runs-on: ubuntu-latest
+       outputs:
+          tag: ${{ steps.tag.outputs.tag }}
+       steps:
+        - name: Check-out repository
+          uses: actions/checkout@v3
+
+        - id: tag
+          run: |
+            TAG=v$(TZ=JST-9 date "+%Y-%m-%d-%H-%M")
+            echo "$TAG"
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            git config user.name "GitHub Action"
+            git config user.email "unchiburiburi45450721@unchiburiburi45450721.com"
+            git tag -a $TAG -m "Published version $TAG" ${GITHUB_SHA}
+            git push origin $TAG
+
+    build:
+        needs: maketag
+        strategy:
+            matrix:
+                python-version: ['3.9','3.10','3.11']
+                os: [windows-latest, ubuntu-latest]
+            
+        runs-on: ${{ matrix.os }}
+        steps:
+            - name: Check-out repository
+              uses: actions/checkout@v3
+              with:
+                submodules: recursive
+
+            - name: Set up Python ${{ matrix.python-version }}
+              uses: actions/setup-python@v4
+              with:
+                python-version: ${{ matrix.python-version }}
+
+            - name: Add msbuild to PATH
+              if: startswith(matrix.os, 'windows')
+              uses: microsoft/setup-msbuild@v1
+
+            - name: Install dependencies
+              run: |
+                pip install "wheel"
+                pip install "setuptools<v60.0"
+                pip install "cython>=0.28.0, <3.0"
+                pip install "numpy>=1.20.0"
+
+
+            - name: Build wheel
+              run: |
+                python setup.py bdist_wheel
+
+            - name: Upload Artifacts
+              uses: actions/upload-artifact@v3
+              with:
+                  name: ${{ runner.os }}-${{ matrix.python-version }}  Build
+                  path: |
+                    dist/**/*.whl       
+                    dist/
+            
+            - name: Cut a new release
+              uses: softprops/action-gh-release@v1
+              with:
+                tag_name: ${{ needs.maketag.outputs.tag }}
+                files: |
+                  dist/*.whl      
